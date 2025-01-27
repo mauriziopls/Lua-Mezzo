@@ -1,8 +1,12 @@
 require("math")
 lastTag = 0
 Tick = 0
+TickPerSecond = 4
+SeconPerMinute = 60
+Minutes = 2
+Slowtick = 0
 channels = 4
-bAwait = true
+bAwait = false
 
 actionStatus = {
 	aGain = {},
@@ -13,6 +17,7 @@ actionStatus = {
 	aSourceTrim = {0.0,0.0} -- Analog index 0 , Dante index 1
 }
 
+SourcGainFromAmp = {1,5,9,13,2,6,10,14,3,7,11,15,4,8,12,16}
 outMute = { -1, -1, -1, -1 }
 nOutMeter = { -144.0, -144.0, -144.0, -144.0 }
 nChanAlarm = { 0, 0, 0, 0 }
@@ -168,7 +173,7 @@ function ReadResponse(addr, size, data)
 			version = string.sub(data, 1, 0x14)
 		elseif (0x000000F4 == addr) then	--	Name
 			name = string.sub(data, 1, 0x50)
-		elseif (inputMeterAddress == addr) then	--	Input Meters
+--[[		elseif (inputMeterAddress == addr) then	--	Input Meters
 			for chan = 1, channels, 1 do
 				meterStr = string.sub(data, ((chan - 1) * 4) + 1, chan * 4)
 				nVoltPeak = string.unpack("f", meterStr)
@@ -179,33 +184,39 @@ function ReadResponse(addr, size, data)
 				end
 				if (bPrint) then print(string.format("In Meter %d = %f dB (%fV)\r", chan, nInMeter[chan], nVoltPeak)) end
 			end
-		elseif (0xbba8 == addr) then	--	Output Meters
---			data = "abcdefghilmnopqrstuvz"
+	]]	elseif (0xbba8 == addr) then	--	Output Meters
 
 			for chan = 1, channels, 1 do
-				nOutMeter[chan] = -144			
+				--nOutMeter[chan] = -144			
 				meterStr = string.sub(data, ((chan - 1) * 4) + 1, chan * 4)
 				nVal = string.unpack("f", meterStr)
 				nRatio = string.unpack("f", meterStr)
-
 				if (0. ~= nRatio) then
-					if (0.0 ~= NamedControl.GetValue("B_MuteO_" ..tostring(chan))) then 
+					if (0.0 ~= outMute[chan]) then 
 						nOutMeter[chan] = -144
-						--print ("in Mute")
 					else
-						nOutMeter[chan] = -(math.log(nRatio, 10.) * 20)
-						--print ("in Log")
-
+						nOutMeter[chan] = -(math.log(nRatio, 10) * 20)
 					end
 				else
 					nOutMeter[chan] = 0.
 				end
-				--NamedControl.SetValue("Meter_output" .. tostring(chan),0)
 
-				--nOutMeter[chan] = -(math.log(nRatio, 10.) * 20.)				if (true) then print(string.format("Out Meter %d = %f dB Ratio = %f, Hex = %X\r", chan, nOutMeter[chan], nRatio, nVal)) end
---				NamedControl.SetValue("Meter_output" .. tostring(chan),nOutMeter[chan])
-				--if (true) then print(string.format("Out Meter %d = %f dB Ratio = %f, Hex = %X\r", chan, nOutMeter[chan], nRatio, nVal)) end
-				--print(string.format("Meeter result: '%s' \r", DumpPkt(data, string.len( data ), false)))
+				if (0. ~= nRatio) then
+					if (0.0 ~= NamedControl.GetValue("B_MuteO_" ..tostring(chan))) then 
+						nOutMeter[chan] = -144
+
+					
+					else
+					nOutMeter[chan] = -(math.log(nRatio , 10) * 20)
+						
+					end
+				else
+--					nOutMeter[chan] = 0.
+					--NamedControl.SetValue("L_Signal1", 0)
+					nOutMeter[chan] = 0.
+
+				end
+				
 	
 			end
 
@@ -219,7 +230,6 @@ function ReadResponse(addr, size, data)
 				if (0 ~= nClipChanAlarm[chan]) then	
 					nChanAlarm[chan] = 1
 				end
-				--nClipChanAlarm[chan] = 1
 				if (bPrint) then print(string.format("Clip Alarm %d = %d", chan, nClipChanAlarm[chan])) end
 				NamedControl.SetValue("Clip"..tonumber(chan), nClipChanAlarm[chan])
 			end
@@ -261,7 +271,6 @@ function ReadResponse(addr, size, data)
 					nChanAlarm[chan] = 1
 				end
 				if (bPrint) then print(string.format("Amp Alarm %d = %d", chan, nAmpChanAlarm[chan])) end
-				-- nAmpChanAlarm[chan] = 1
 				NamedControl.SetValue("Amps"..tonumber(chan), nAmpChanAlarm[chan])
 
 			end
@@ -307,17 +316,82 @@ function ReadResponse(addr, size, data)
 			for chan = 1, channels, 1 do
 			 Signal = string.byte(data,chan )	
 			 NamedControl.SetValue("LED_Signal" ..tostring(chan), tonumber(Signal))
-			end
-		elseif ( 0x2000 == addr) then
-			print(string.format("Meeter result: '%s' \r", DumpPkt(data, string.len( data ), false)))				--print(string.format("Meeter result: '%s' \r", DumpPkt(data, string.len( data ), false)))
-		--	print(string.format("Meeter result: '%s' \r", DumpPkt(string.sub( data,4,8)), 4, false))				--print(string.format("Meeter result: '%s' \r", DumpPkt(data, string.len( data ), false)))
-			bAwait = true -- riabilita le altre reads stoppate precedentemente
-			a,b = DumpPkt(data, string.len( data ),true)
-			vvv = string.unpack("f",string.sub( data,0,3))
-			--print(string.format("Primi quattro: '%s' \r", DumpPkt(string.sub( data,5,8), string.len( 4 ), false)))				--print(string.format("Meeter result: '%s' \r", DumpPkt(data, string.len( data ), false)))
-			--vvv = 10. ^ (tonumber(vvv) / 20.)
-			print("Aggiornato !!! " .. string.format("%f",tonumber(vvv)))
+			 
 
+			--print(string.format("Mute result: '%s' %X\r", DumpPkt(data, string.len( data ), false),addr))	
+			end
+		elseif(addr >= 0x4024 and addr <=0x4027) then -- Channel's mute
+			
+--			print(string.format("Mute result: '%s' %X\r", DumpPkt(data, string.len( data ), false),addr))	
+			NamedControl.SetValue("B_MuteO_" ..tostring(addr - 0x4023) , tonumber(string.byte(data,1)))
+--[[]		elseif(addr >= 0x4024 and addr <=0x4027) then -- Channel's mute
+			
+			--print(string.format("Mute result: '%s' %X\r", DumpPkt(data, string.len( data ), false),addr))	
+			NamedControl.SetValue("B_MuteO_" ..tostring(addr - 0x4023) , tonumber(string.byte(data,1)))
+	]]	elseif(addr == 0x4000 ) then -- Matrix Channel's Gain
+
+--			print(string.format("Output Gain result: '%s' %X\r", DumpPkt(data, string.len( data ), false),addr))	
+			vvv = string.unpack("f",string.sub( data,1,4))
+			valore =   math.log(vvv, 10.) * 20
+			for CntrlNumber = 1,4,1
+			do
+				CntrlName = "F_Output" ..tostring(CntrlNumber)
+--				print("Control Name : " ..CntrlName)
+
+
+				CntrlValue = string.unpack("f",string.sub( data,(CntrlNumber -1)* 4 + 1,(CntrlNumber-1) * 4 + 4))
+				valore =   math.log(CntrlValue, 10.) * 20
+--				print("Aggiornato !!! " .. string.format("%f",valore))
+				NamedControl.SetValue(CntrlName , valore)
+				NamedControl.SetText("L_Status","Sync. completed")
+				--NamedControl.SetValue("B_Stop", 0)
+				bAwait = false
+			end
+			
+		elseif(addr == 0x3018 ) then -- Matrix Channel's Gain
+
+--			print(string.format("Matrix Gain result: '%s' %X\r", DumpPkt(data, string.len( data ), false),addr))	
+			vvv = string.unpack("f",string.sub( data,1,4))
+			valore =   math.log(vvv, 10.) * 20
+			NamedControl.SetValue("F_M1", valore)
+
+			for CntrlNumber = 1,16,1
+			do
+				CntrlName = "F_M" ..tostring(SourcGainFromAmp[CntrlNumber]  )
+--				print("Control Name : " ..CntrlName)
+
+
+				CntrlValue = string.unpack("f",string.sub( data,(CntrlNumber -1)* 4 + 1,(CntrlNumber-1) * 4 + 4))
+				valore =   math.log(CntrlValue, 10.) * 20
+--				print("Aggiornato !!! " .. string.format("%f",valore))
+				NamedControl.SetValue(CntrlName , valore)
+			end
+		--bAwait = true
+	elseif(addr == 0x3058) then -- Matrix Channel's Gain
+
+				for CntrlNumber = 1,16,1
+		do
+			CntrlName = "B_MuteM_" ..tostring(CntrlNumber)
+			CntrlValue = tonumber(string.byte(data,CntrlNumber))
+	
+			NamedControl.SetValue(CntrlName , CntrlValue)
+		end
+	elseif(addr == 0x3058) then -- Matrix Channel's Gain
+
+		--print(string.format("Matrix Gain result: '%s' %X\r", DumpPkt(data, string.len( data ), false),addr))	
+		for CntrlNumber = 1,16,1
+		do
+			CntrlName = "B_MuteM_" ..tostring(CntrlNumber)
+			CntrlValue = tonumber(string.byte(data,CntrlNumber))
+	
+			NamedControl.SetValue(CntrlName , CntrlValue)
+		end
+	elseif ( 0x2000 == addr) then
+			
+			a,b = DumpPkt(data, string.len( data ),true)
+			vvv = string.unpack("f",string.sub( data,5,9))
+			valore = math.log(tonumber(vvv), 10) * 20	--10. ^ (tonumber(vvv) / 20.) --math.log(tonumber(vvv), 10) * 20	
+			print("Trim Aggiornato !!! " .. string.format("%f %f",tonumber(valore),tonumber(vvv) ) )
 
 		else
 			print(string.format("Unknown read value addr=%X, size = %X\r", addr, size))
@@ -341,14 +415,11 @@ end
 
 
 function GotData (udpTable, packet)
-	--print("sono in GOTDATA: " )
 	
 	bValid = true
 	responseClicks = 0
 	reply = packet.Data
---	print(packet.Data)
 	replyLen = string.len(reply)
-	--print(string.sub( reply, 20,26))
 	if ("DMZO322_ND" == string.sub( reply, 20,26)) then
 		model = "Mezzo 322 A"
 	elseif ("DMZO322" == string.sub( reply, 20,26)) then
@@ -367,7 +438,6 @@ function GotData (udpTable, packet)
 	elseif ("DMZO604" == string.sub( reply, 20,26)) then
 		model = "Mezzo 604 AD"
 	end
---	if(model.length > 1) then Connected = true end
 
 	NamedControl.SetText("Model", model)
 
@@ -407,15 +477,12 @@ function GotData (udpTable, packet)
 			bValid = false
 			print(string.format("HDR = %X, %X Should be 0x4D5A4F, 0x0001\r", magic, protocol))
 		else
---			print("Header Matches\r")
 			if (rxTag ~= lastTag) then
 				bValid = false
 				print(string.format("Tag = %X, Should be 0x%X\r", rxTag, lastTag))
 			else
---				print("Tag Matches\r")
 				reply = string.sub(reply, 10)
 				replyLen = replyLen - 9
---				print(string.format("Post Hdr: '%s' length %d\r", DumpPkt(reply, replyLen, false)))
 			end
 		end
 	end
@@ -530,19 +597,22 @@ function SetTrimAnalogDante(Addr)
 	end
 	-- any user change ?, if not, do nothing
 	if(actionStatus.aSourceTrim[SourceIndex] == NamedControl.GetValue(ControlName) ) then 	
-		--	il valore non è cambiato, quindi non fare niente
-				return 
-			end
+		return
+	end
+	print("cambiato")
+
+
 	-- If the User has changed the control status, let's remember it
 	actionStatus.aSourceTrim[SourceIndex] = NamedControl.GetValue(ControlName)
 	
-	print(ControlName)
+--	print(ControlName)
 	v = NamedControl.GetValue(ControlName)
-	print(string.format("%d",v))	
-	if(v == nill)then return end
+--	print(string.format("%d",v))	
 
 	NamedControl.SetText(ControlName1,v)
-	val[1] = 10. ^ (tonumber(v) / 20.)				
+	
+	val[1] = tostring(v) --10. ^ (tonumber(v) / 20.)--math.log(tonumber(v), 10) * 20	--10. ^ (tonumber(v) / 20.)				
+print	(string.format("%f %f",val[1],v	))	
 	cmd[1], cmdLen[1] = WriteCmd(Addr + 0,val, 1, 4, "f") -- Write Input Mute if changed
 	cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
 	MezzoU:Send(ip, port, cmd) 	 		
@@ -552,8 +622,8 @@ function ReadTrimAnalogDante(Addr)
 	cmd = {}	
 	cmdLen = {}
 	val = {}
-	print("Trim Read !!!")
-	cmd[1], cmdLen[1] = ReadCmd(0x2000, 4, 4) -- Write Input Mute if changed
+	--print("Trim Read !!!")
+	cmd[1], cmdLen[1] = ReadCmd(0x2000, 16, 1) -- Write Input Mute if changed
 	cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
 	MezzoU:Send(ip, port, cmd) 	 			
 end	
@@ -570,15 +640,14 @@ function SetSourceGain(SoucrceNumber,GainNumber,Value)
 	if(actionStatus.aGain[SoucrceNumber][GainNumber] == NamedControl.GetValue(GainControlName) ) then 	
 	--	print("il valore non è cambiato: "..GainControlName)
 		
- 		return end
+ 		return 
+	end
 
 
 
---	print("Il Valore è cambiato: "..GainControlName)
 	-- value remainder
 	actionStatus.aGain[SoucrceNumber][GainNumber] = NamedControl.GetValue(GainControlName) 
 	v =actionStatus.aGain[SoucrceNumber][GainNumber]
---	print ("Gain Control Value: ",actionStatus.aGain[SoucrceNumber][GainNumber])
 
 	val[1] = 10. ^ (tonumber(v) / 20.)
 	NamedControl.GetPosition("F_M1")
@@ -590,20 +659,19 @@ end
 function SourceGain(SoucrceNumber,GainNumber)
 	cmd = {}	
 	cmdLen = {}
+	val = {}
+
 	GainControlName = ("F_M" ..tostring(SoucrceNumber+((GainNumber-1)*4)))
 
 	if(actionStatus.aGain[SoucrceNumber][GainNumber] == NamedControl.GetValue(GainControlName) ) then 	
-	--	print("il valore non è cambiato: "..GainControlName)
-		
- 		return end
+	
+ 		return 
+	end
 
 
 
-	--print("Il Valore è cambiato: "..GainControlName)
-	-- value remainder
 	actionStatus.aGain[SoucrceNumber][GainNumber] = NamedControl.GetValue(GainControlName) 
 	v =actionStatus.aGain[SoucrceNumber][GainNumber]
-	--print ("Gain Control Value: ",actionStatus.aGain[SoucrceNumber][GainNumber])
 
 	val[1] = 10. ^ (tonumber(v) / 20.)
 	NamedControl.GetPosition("F_M1")
@@ -612,54 +680,61 @@ function SourceGain(SoucrceNumber,GainNumber)
 	MezzoU:Send(ip, port, cmd) 	 		
 end
 
-function SourceMute (SoucrceNumber,GainNumber)
+
+function ReadMatrixSourceGain(SoucrceNumber,GainNumber)
 	cmd = {}	
 	cmdLen = {}
-	GainControlName = ("B_MuteM_" ..tostring(SoucrceNumber+((GainNumber-1)*4)))
+	GainControlName = ("F_M" ..tostring(SoucrceNumber+((GainNumber-1)*4)))
 
-	if(actionStatus.aMute[SoucrceNumber] == NamedControl.GetValue(GainControlName) ) then 	
-	--	print("il valore non è cambiato: "..GainControlName)
-		
- 		return end
-
-	--print("Il Valore è cambiato: "..GainControlName)
-	-- value remainder
-	actionStatus.aMute[SoucrceNumber] = NamedControl.GetValue(GainControlName) 
-	v =actionStatus.aMute[SoucrceNumber]
-
-	--print ("Gain Control Value: ",actionStatus.aMute[SoucrceNumber])
-
-	val[1] = v
-	NamedControl.GetPosition("F_M1")
-	--cmd[1], cmdLen[1] = WriteCmd(0x3058 + 0,val, 1, 1, ">I1")
-	--
-	cmd[1], cmdLen[1] = WriteCmd(0x3058 + SoucrceNumber-1 +(GainNumber-1),val, 1, 1, ">I1")
-	-- cmd[1], cmdLen[1] = WriteCmd(0x3018 + ((SoucrceNumber-1)*16)  + (GainNumber-1)*4,val, 1, 4, "f") 
+	cmd[1], cmdLen[1] = ReadCmd(0x3018 + ((SoucrceNumber-1)*16)  + (GainNumber-1)*4,1, 4*16, "f") 
 	cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
 	MezzoU:Send(ip, port, cmd) 	 		
 end
 
+
+function SourceMute (SoucrceNumber,GainNumber)
+	cmd = {}	
+	cmdLen = {}
+	MuteControlName = ("B_MuteM_" ..tostring(SoucrceNumber+((GainNumber-1)*4)))
+
+	if(actionStatus.aMute[SoucrceNumber] == NamedControl.GetValue(MuteControlName) ) then 	
+		
+ 		return end
+
+	actionStatus.aMute[SoucrceNumber] = NamedControl.GetValue(MuteControlName) 
+	v =actionStatus.aMute[SoucrceNumber]
+
+
+	val[1] = v
+	NamedControl.GetPosition("F_M1")
+
+	cmd[1], cmdLen[1] = WriteCmd(0x3058 + SoucrceNumber-1 +(GainNumber-1),val, 1, 1, ">I1")
+	cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
+	MezzoU:Send(ip, port, cmd) 	 		
+end
+
+
+
+function ReadMatrixSourceMute (SoucrceNumber)
+	cmd = {}	
+	cmdLen = {}
+	MuteControlName = ("B_MuteM_" ..tostring(SoucrceNumber))
+
+	cmd[1], cmdLen[1] = ReadCmd(0x3058 + SoucrceNumber-1 , 16, 1)
+	-- cmd[1], cmdLen[1] = WriteCmd(0x3018 + ((SoucrceNumber-1)*16)  + (GainNumber-1)*4,val, 1, 4, "f") 
+	cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
+	MezzoU:Send(ip, port, cmd) 	 		
+--	print("MuteMatrix !!!")
+end
 
 function SourceAnalogOrDante(OutNumber)
 
 	cmd = {}
 	cmdLen = {}
 
-	-- get control name
---	OutName = "B_MuteO_" ..tostring(OutNumber)
-	--print(" Il Nome dell'output è: " ..OutName)
-
---	if(actionStatus.aOutMute[OutNumber-1] == NamedControl.GetValue(OutName) ) then 	
-		--	print("il valore non è cambiato: "..GainControlName)
-			
---			 return end
-	
---			 actionStatus.aOutMute[OutNumber-1] = NamedControl.GetValue(OutName) 
-print("ksksksk")
 	val = {}
 
 	val[1] = 2
-	--	cmd[1], cmdLen[1] = WriteCmd(0x2200 + OutNumber-1,val, 1, 1, ">I1") -- Write Input Mute if changed
 
 	cmd[1], cmdLen[1] = WriteCmd(0x2210,val, 1, 1, ">I1") -- Write Input Mute if changed
 	cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
@@ -675,11 +750,9 @@ function SourceAnalogOrDante1(OutNumber)
 	cmd = {}
 	cmdLen = {}
 
-print("ksksksk")
 	val = {}
 
 	val[1] = 2
-	--	cmd[1], cmdLen[1] = WriteCmd(0x2200 + OutNumber-1,val, 1, 1, ">I1") -- Write Input Mute if changed
 
 	cmd[1], cmdLen[1] = WriteCmd(0x2220,val, 1, 1, ">I1") -- Write Input Mute if changed
 	cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
@@ -728,6 +801,25 @@ function OutputMute(OutNumber)
 
 end
 
+--************************ ask for Mute Channel status ****************
+--************************ used to sync with ARMONIA PUS **************
+function ReadOutputMute(OutNumber)
+
+	cmd = {}
+	cmdLen = {}
+
+	-- get control name
+	OutName = "B_MuteO_" ..tostring(OutNumber)
+	
+
+	cmd[1], cmdLen[1] = ReadCmd(0x4024 + OutNumber-1,1,1) -- Write Input Mute if changed
+	cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
+
+	MezzoU:Send(ip, port, cmd)
+
+
+end
+
 function OutputGain(OutNumber)
 	cmd = {}
 	cmdLen = {}
@@ -737,7 +829,6 @@ function OutputGain(OutNumber)
 
 
 	if(actionStatus.aOutGain[OutNumber-1] == NamedControl.GetValue(OutName) ) then 	
-		--	print("il valore non è cambiato: "..GainControlName)
 			
 			 return end
 
@@ -746,14 +837,31 @@ function OutputGain(OutNumber)
 
 	v = tonumber(NamedControl.GetValue(OutName))
 
-	print(OutName .. " Value is: ".. v)
+--	print(OutName .. " Value is: ".. v)
 	val[1] = 10. ^ (tonumber(v) / 20.)
-	print(string.format( "%x", 0x4000 + ((OutNumber-1)*4)))
+--	print(string.format( "%x", 0x4000 + ((OutNumber-1)*4)))
 	cmd[1], cmdLen[1] = WriteCmd(0x4000 + ((OutNumber-1)*4),val, 1, 4, "f") -- Write Input Mute if changed
 	cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
 	MezzoU:Send(ip, port, cmd)
 
 end
+
+function ReadOutputGain(OutNumber)
+	cmd = {}
+	cmdLen = {}
+
+
+	OutName = "F_Output" ..tostring(OutNumber)
+
+	v = tonumber(NamedControl.GetValue(OutName))
+
+	cmd[1], cmdLen[1] = ReadCmd(0x4000, 1, 16) -- Write Input Mute if changed
+	cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
+	MezzoU:Send(ip, port, cmd)
+
+end
+
+
 
 
 function FlashUnit()
@@ -787,12 +895,8 @@ function ReadChannelsAllarm()
 
 	cmd[1], cmdLen[1] = ReadCmd(0xb63c, 20, 1)	--	Read allarm,
 	cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
-	--print(tostring(cmd) .. " - " .. tostring(cmdLen) )
-	
-	
 	
 	MezzoU:Send(ip, port, cmd)
-					--	Output Meters
 	
 
 end
@@ -833,6 +937,7 @@ function ReadOutputMeeter(OutNumber)
 	cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
 	
 	MezzoU:Send(ip, port, cmd)
+
 					--	Output Meters
 end
 
@@ -846,18 +951,8 @@ print("................. READ MODEL ................")
 	-- ****************** lettura modello 
 	cmd[1], cmdLen[1] = ReadCmd(0x0, 0x14, 1)	--	Read Model	
 	cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
-	--print(tostring(cmd) .. " - " .. tostring(cmdLen) )
-	
-	--print (ip,port)
 	
 	MezzoU:Send(NamedControl.GetText("I_IP"), port, cmd)
---[[
-	cmd = {}
-	cmdLen = {}
-	cmd[1], cmdLen[1] = ReadCmd(0xb650, 6, 1)	--	read unit alarms
-
-	MezzoU:Send(ip, port, cmd)
-	]]
 end
 
 
@@ -880,11 +975,11 @@ function AutoConnect()
 end
 
 function AllarmCheck(Channel)
-	if bAwait then
-		ReadChannelsAllarm()
-		ReadUnitAllarm()
+--	if bAwait then
+		--ReadChannelsAllarm()
+		--ReadUnitAllarm()
 		ReadOutputMeeter(Channel)
-	end
+--	end
 end
 -- ****************** Check and set connection ******************
 function Connect()
@@ -900,11 +995,7 @@ function Connect()
 		receivedIP, receivedPort = MezzoU:GetSockName()
 		print("IP: " .. receivedIP .. " Port: " .. receivedPort .. " Offline: " .. tostring(Device.Offline))
 		ReadModel()
-	--	Standby()
---		SourceAnalogOrDante(1)   
---		SourceAnalogOrDante1(1)
-		--OutputMeeter(1)
-		--FlashUnit()
+		ReadTrimAnalogDante(0x2000)
     end 
 	if(connected) then 
 		NamedControl.SetValue("LED_Connect", 1)
@@ -929,7 +1020,11 @@ function Preset1()
 	n = 1
 	for n = 1,16,1 do
 		NamedControl.SetValue("B_MuteM_" .. tostring(n), 0)
+		print("B_MuteM_" .. tostring(n))
+	--	SourceMute(nSource,1)
+	
 	end
+
 	for nSource = 1, 4, 1 do
 		for nGain = 1, 4, 1 do
 			if(nSource == 1) then
@@ -1002,18 +1097,38 @@ end
 
 
 function TimerClick()
-
---	print("Analog Trim Value: " ..NamedControl.GetPosition("F_InputGain2"))
---	NamedControl.SetText("P_InputGain1",tostring(NamedControl.GetValue("F_InputGain1")))
 	AutoConnect()
 	Connect()
 	Disconnect()
-
+	if (false) then 
+		return
+	end
+	-- Manual Sync
 	CheckSync()
+	-- Automatic Sync every 2 minutes
+	if((Tick %(TickPerSecond * SeconPerMinute * Minutes)) == 0) then
+		SyncNow()
+	end
+	
+	-- pauses each command to prioritize synchronization
+	if(bAwait) then
+
+		-- Progress message
+		if(Tick % 3 == 0) then
+			NamedControl.SetText("L_Status","Syncing ...")
+		else
+			NamedControl.SetText("L_Status","	")
+		end
+		Tick = Tick + 1
+		return 
+	end
+
+	
 
 	SetTrimAnalogDante(0x2000)
 	SetTrimAnalogDante(0x2008)
-	
+
+
 	-- **************** Matrix source Gain Managment
 	for nSource = 1, 4, 1 do
 		for nGain = 1, 4, 1 do
@@ -1026,28 +1141,46 @@ function TimerClick()
 		
 	end
 
+	if((Tick % 4) == 0)
+	then
+		MezzoU:Open(Device.LocalUnit.ControlIP,Port)   
+		receivedIP, receivedPort = MezzoU:GetSockName()
+		-- print("IP: " .. receivedIP .. " Port: " .. receivedPort .. " Offline: " .. tostring(Device.Offline))
+		--	ReadModel()
+	end
+
 	for i = 1,4,1
 	do
 		OutputMute(i)
 		OutputGain(i)
-		if((Tick % 3) == 0)
+		if((Tick % 2) == 0)
 		then
-		--	AllarmCheck(i)
+		AllarmCheck(i)
 		end
 	end
 
-	-- da rivedere
-	if(false)
-	then
-		MezzoU:Close()
-		MezzoU:Open(Device.LocalUnit.ControlIP,Port)   
-	end
+
 	
+	--from-42 to 33	
+	for i = 1,4,1
+	do
+		LedSignalName = "L_Signal".. tostring(i)
+		--print(LedSignalName .. ": " ..tostring(nOutMeter[i]))
+		if nOutMeter[i] <= 28 and nOutMeter[i] > -30 then
+			NamedControl.SetValue(LedSignalName,0.5)
+		elseif nOutMeter[i] <=-30 then
+			NamedControl.SetValue(LedSignalName,0)
+		else
+			NamedControl.SetValue(LedSignalName,1)
+		end
+	end
+	print("meeter :"..nOutMeter[1])
 	NamedControl.SetValue("Meter_output1", nOutMeter[1])
 	NamedControl.SetValue("Meter_output2", nOutMeter[2])
 	NamedControl.SetValue("Meter_output3", nOutMeter[3])
 	NamedControl.SetValue("Meter_output4", nOutMeter[4])
-	ReadSignalPresence(0)
+
+--	ReadSignalPresence(0)
 
 	Tick = Tick + 1
 	if 1 == NamedControl.GetValue("B_M_Preset1") then
@@ -1073,16 +1206,46 @@ end
 
 
 function CheckSync()
-
-	if 1 == NamedControl.GetValue("B_Sinc") then
+	
+--[[
+	if 1 == NamedControl.GetValue("B_Stop") then
+		bAwait = true
+	elseif 0 == NamedControl.GetValue("B_Stop") then
 		bAwait = false
+	end
+	]]
+	if 1 == NamedControl.GetValue("B_Sinc") then
+		bAwait = true
 		
+	--	NamedControl.SetValue("B_Stop", 1)
 		ReadTrimAnalogDante(0x2000)
+		for ch = 1,4,1
+		do
+			ReadOutputMute(ch)
+		end
+		ReadMatrixSourceMute(1)		
+		ReadMatrixSourceGain(1,1)
+		ReadOutputGain(1) -- this has to be the last function ( set bWatit to false)
 		NamedControl.SetValue("B_Sinc", 0)
+
 		return true
 	end
 	return false
 end
+
+function SyncNow()
+	bAwait = true
+	
+	for ch = 1,4,1
+	do
+		ReadOutputMute(ch)
+	end
+	ReadMatrixSourceMute(1)		
+	ReadMatrixSourceGain(1,1)
+	ReadOutputGain(1) -- this has to be the last function ( set bWatit to false)
+	NamedControl.SetValue("B_Sinc", 0)
+end
+
 
 print("start !!!!!!")
 --	Open UDP port
@@ -1091,104 +1254,10 @@ MezzoU = UdpSocket.New()
 MezzoU:Open(Device.LocalUnit.ControlIP,0)
 MezzoU.Data = GotData
 
+
 -- Force connect offline to off each load.
 NamedControl.SetValue("Connect Offline" , 0.0) 
-
---Device.Offline = false
-
-
---[[
-
---****************************** Output Mute ***************************
-cmd = {}
-cmdLen = {}
-
-
-val = {}	--	temporary work value, must be initialized as table	
-val[1] = 1
-cmd[1], cmdLen[1] = WriteCmd(0x4024 + 0,val, 1, 1, ">I1") -- Write Input Mute if changed
-cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
-
---MezzoU:Send(ip, port, cmd)
---MezzoU:Send(ip, 8002, "02,00,00,34,12,52,00,00,00,00,14,00,00,00,52,14,00,00,00,10,00,00,00,52,60,00,00,00,14,00,00,00,52,f4,00,00,00,50,00,00,00,57,00,30,00,00,04,00,00,00,01,00,00,00,57,04,30,00,00,01,00,00,00,01,57,08,30,00,00,04,00,00,00,93,8c,d5,40,57,05,30,00,00,01,00,00,00,01,57,0c,30,00,00,04,00,00,00,9f,b3,53,3c,57,06,30,00,00,01,00,00,00,01,57,10,30,00,00,04,00,00,00,b1,50,a4,3d,57,07,30,00,00,01,00,00,00,01,57,14,30,00,00,04,00,00,00,00,00,80,3f,52,40,ba,00,00,10,00,00,00,6c,64,03")
---****************************** Output Mute ***************************
-cmd = {}
-cmdLen = {}
-
---****************************** Matrix source 1 input 1 mute
-val = {}	--	temporary work value, must be initialized as table	
-val[1] = 1
-cmd[1], cmdLen[1] = WriteCmd(0x3058 + 0,val, 1, 1, ">I1") -- Write Input Mute if changed
-cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
-
---MezzoU:Send(ip, port, cmd)
-
-
-cmd = {}
-cmdLen = {}
-
---******************************  source 1 input 1 Gain
-val = {}	--	temporary work value, must be initialized as table	
-val[1] = 15.
-cmd[1], cmdLen[1] = WriteCmd(0x3008 + 0,val, 1, 4, "f") -- Write Input Mute if changed
-cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
-
-MezzoU:Send(ip, port, cmd)
-
-cmd = {}
-cmdLen = {}
-inGain = { -60.0, -40.0, -10,-0.0 }
---******************************  source 1 input 1 Gain
-val = {}	--	temporary work value, must be initialized as table	
-print("Gain is:" ..inGain[1] .."\n\r"
-.. tostring( 10. ^ (inGain[1] / 20.)) .."\n\r"
-.. tostring( 10. ^ (inGain[2] / 20.)) .."\n\r"
-.. tostring( 10. ^ (inGain[3] / 20.)) .."\n\r"
-.. tostring( 10. ^ (inGain[4] / 20.)) .."\n\r"
-)
-val[1] = 10. ^ (inGain[1] / 20.)
-cmd[1], cmdLen[1] = WriteCmd(0x3018 + 0,val, 1, 4, "f") -- Write Input Mute if changed
-cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
---MezzoU:Send(ip, port, cmd)
-
-cmd = {}
-cmdLen = {}
-
-val[1] = 10. ^ (inGain[2] / 20.)
-cmd[1], cmdLen[1] = WriteCmd(0x301c + 0,val, 1, 4, "f") -- Write Input Mute if changed
-cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
---MezzoU:Send(ip, port, cmd)
-
-cmd = {}
-cmdLen = {}
-
-val[1] = 10. ^ (inGain[3] / 20.)
-cmd[1], cmdLen[1] = WriteCmd(0x3020 + 0,val, 1, 4, "f") -- Write Input Mute if changed
-cmd, cmdLen			 = BuildMultiPacket(0, cmd, cmdLen)	
---MezzoU:Send(ip, port, cmd)
 	
-cmd = {}	
-cmdLen = {}
-
-
-v = NamedControl.GetValue("F_M1")
-v1 = 60 - (tonumber(v) * -60.0)
-print ("---------------	-  	------------- %f",v1,tonumber(v))
-
-		gain1 =  10. ^ (v1 / 20.)	
-print(gain1)
-
-
-val[1] = 10. ^ (tonumber(v) / 20.)
---val[1]=  10. ^ (inGain[4] / 20.)				
-cmd[1], cmdLen[1] = WriteCmd(0x3024 + 0,val, 1, 4, "f") -- Write Input Mute if changed
-cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
-	MezzoU:Send(ip, port, cmd) 	 		
-
-]]
-
-	
-
 function Init()
 	for nSource = 1, 4, 1 do
 		actionStatus.aGain[nSource] = {}   
@@ -1204,16 +1273,12 @@ end
 Init()
 
 NamedControl.SetText("Model", model)
+--NamedControl.SetValue("L_Signal1", 1)
 
 MyTimer = Timer.New()
 MyTimer.EventHandler = TimerClick
 MyTimer:Start(.25)
 
 
---Standby()
---SourceAnalogOrDante(1)
-
---GetSourceGain(1,1)
---SourceMute(4,1)
 
 

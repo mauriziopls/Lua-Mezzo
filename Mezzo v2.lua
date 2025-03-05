@@ -1,6 +1,6 @@
 require("math")
 lastTag = 0
-Tick = 0
+Tick = 1
 TickPerSecond = 4
 SeconPerMinute = 60
 Minutes = 2
@@ -14,12 +14,14 @@ actionStatus = {
 	aOutMute = {0,0,0,0},
 	aOutGain  = {0.0,0.0,0.0,0.0},
 	aFlashUint = 0,
-	aSourceTrim = {0.0,0.0} -- Analog index 0 , Dante index 1
+	aSourceTrim = {0.0,0.0}, -- Analog index 0 , Dante index 1
+	aSourceIn = {-1,-1,-1,-1}
 }
 
 SourcGainFromAmp = {1,5,9,13,2,6,10,14,3,7,11,15,4,8,12,16}
 outMute = { -1, -1, -1, -1 }
 nOutMeter = { -144.0, -144.0, -144.0, -144.0 }
+nInMeter = { -144.0, -144.0, -144.0, -144.0 }
 nChanAlarm = { 0, 0, 0, 0 }
 nClipChanAlarm = { 0, 0, 0, 0 }
 nSoaChanAlarm = { 0, 0, 0, 0 }
@@ -32,7 +34,7 @@ nFanAlarm = 0
 nTempAlarm = 0
 nVauxAlarm = 0
 nGenericAlarm = 0
-
+bPrint = false
 
 
 ip_default =  "192.168.5.153"
@@ -144,8 +146,15 @@ end
 function ReadResponse(addr, size, data)
 
 	if (0 == size) then
-		print(string.format("Read response addr=%X, failed!\r", addr))
-		bConnected = false
+		if(addr == 0x8000 ) then -- Matrix Channel's Gain
+			NamedControl.SetText("L_Status","Sync. completed")
+			--NamedControl.SetValue("B_Stop", 0)
+			bAwait = false
+		else
+			print(string.format("Read response addr=%X, failed!\r", addr))
+		
+			bConnected = false
+		end
 	else
 		if (bPrint) then print(string.format("Read response addr=%X, size = %X\r", addr, size)) end
 		if (0x00000000 == addr) then	--	Model
@@ -173,7 +182,57 @@ function ReadResponse(addr, size, data)
 			version = string.sub(data, 1, 0x14)
 		elseif (0x000000F4 == addr) then	--	Name
 			name = string.sub(data, 1, 0x50)
---[[		elseif (inputMeterAddress == addr) then	--	Input Meters
+		elseif(addr >= 0x4024 and addr <=0x4027) then -- Channel's mute
+				
+	--			print(string.format("Mute result: '%s' %X\r", DumpPkt(data, string.len( data ), false),addr))	
+				NamedControl.SetValue("B_MuteO_" ..tostring(addr - 0x4023) , tonumber(string.byte(data,1)))
+	--[[]		elseif(addr >= 0x4024 and addr <=0x4027) then -- Channel's mute
+				
+				--print(string.format("Mute result: '%s' %X\r", DumpPkt(data, string.len( data ), false),addr))	
+				NamedControl.SetValue("B_MuteO_" ..tostring(addr - 0x4023) , tonumber(string.byte(data,1)))
+		]]	
+	
+		elseif(addr == 0x4000 ) then -- Matrix Channel's Gain
+
+
+--			print(string.format("Output Gain result: '%s' %X\r", DumpPkt(data, string.len( data ), false),addr))	
+			vvv = string.unpack("f",string.sub( data,1,4))
+			valore =   math.log(vvv, 10.) * 20
+			for CntrlNumber = 1,4,1
+			do
+				CntrlName = "F_Output" ..tostring(CntrlNumber)
+--				print("Control Name : " ..CntrlName)
+
+
+			CntrlValue = string.unpack("f",string.sub( data,(CntrlNumber -1)* 4 + 1,(CntrlNumber-1) * 4 + 4))
+			valore =   math.log(CntrlValue, 10.) * 20
+--				print("Aggiornato !!! " .. string.format("%f",valore))
+			NamedControl.SetValue(CntrlName , valore)
+		end
+		elseif(addr >= 0x2200 and addr <= 0x2210 ) then -- Source Input
+			print(string.format("Source Routing result: '%s' %X\r", DumpPkt(data, string.len( data ), false),addr))	
+			n = str.byte(data, 1)
+			local DanteOffset = 0
+
+			if(n == 0) then
+				Value = n +1
+				DanteOffset = 0
+			elseif((n % 4) > 0) then  --Dante
+				Value = n - 2
+				DanteOffset = 4
+			else
+				Value = n 
+				DanteOffset = 0
+			end
+			
+	--		print("value : "..Value .." " ..math.tointeger( (Value/4) + 5.) ) 
+			print("Channel : "..math.tointeger( ((addr-0x2202)/4) + 1))
+			Value = math.tointeger( (Value/4) + DanteOffset) 
+			NamedControl.SetValue("DropList_" ..math.tointeger( ((addr-0x2202)/4) + 1),Value)
+
+
+		elseif (0xBA40 == addr) then	--	Input Meters
+			-- print("--------------------------------------------------------------------------------")
 			for chan = 1, channels, 1 do
 				meterStr = string.sub(data, ((chan - 1) * 4) + 1, chan * 4)
 				nVoltPeak = string.unpack("f", meterStr)
@@ -182,9 +241,12 @@ function ReadResponse(addr, size, data)
 				else
 					nInMeter[chan] = -192.
 				end
+				
 				if (bPrint) then print(string.format("In Meter %d = %f dB (%fV)\r", chan, nInMeter[chan], nVoltPeak)) end
+		
 			end
-	]]	elseif (0xbba8 == addr) then	--	Output Meters
+
+		elseif (0xbba8 == addr) then	--	Output Meters
 
 			for chan = 1, channels, 1 do
 				--nOutMeter[chan] = -144			
@@ -318,35 +380,9 @@ function ReadResponse(addr, size, data)
 			 NamedControl.SetValue("LED_Signal" ..tostring(chan), tonumber(Signal))
 			 
 
-			--print(string.format("Mute result: '%s' %X\r", DumpPkt(data, string.len( data ), false),addr))	
+			--print(string.format(" : '%s' %X\r", DumpPkt(data, string.len( data ), false),addr))	
 			end
-		elseif(addr >= 0x4024 and addr <=0x4027) then -- Channel's mute
 			
---			print(string.format("Mute result: '%s' %X\r", DumpPkt(data, string.len( data ), false),addr))	
-			NamedControl.SetValue("B_MuteO_" ..tostring(addr - 0x4023) , tonumber(string.byte(data,1)))
---[[]		elseif(addr >= 0x4024 and addr <=0x4027) then -- Channel's mute
-			
-			--print(string.format("Mute result: '%s' %X\r", DumpPkt(data, string.len( data ), false),addr))	
-			NamedControl.SetValue("B_MuteO_" ..tostring(addr - 0x4023) , tonumber(string.byte(data,1)))
-	]]	elseif(addr == 0x4000 ) then -- Matrix Channel's Gain
-
---			print(string.format("Output Gain result: '%s' %X\r", DumpPkt(data, string.len( data ), false),addr))	
-			vvv = string.unpack("f",string.sub( data,1,4))
-			valore =   math.log(vvv, 10.) * 20
-			for CntrlNumber = 1,4,1
-			do
-				CntrlName = "F_Output" ..tostring(CntrlNumber)
---				print("Control Name : " ..CntrlName)
-
-
-				CntrlValue = string.unpack("f",string.sub( data,(CntrlNumber -1)* 4 + 1,(CntrlNumber-1) * 4 + 4))
-				valore =   math.log(CntrlValue, 10.) * 20
---				print("Aggiornato !!! " .. string.format("%f",valore))
-				NamedControl.SetValue(CntrlName , valore)
-				NamedControl.SetText("L_Status","Sync. completed")
-				--NamedControl.SetValue("B_Stop", 0)
-				bAwait = false
-			end
 			
 		elseif(addr == 0x3018 ) then -- Matrix Channel's Gain
 
@@ -388,7 +424,7 @@ function ReadResponse(addr, size, data)
 		end
 	elseif ( 0x2000 == addr) then
 			
-			a,b = DumpPkt(data, string.len( data ),true)
+			a,b = DumpPkt(data, string.len( data ),false)
 			vvv = string.unpack("f",string.sub( data,5,9))
 			valore = math.log(tonumber(vvv), 10) * 20	--10. ^ (tonumber(vvv) / 20.) --math.log(tonumber(vvv), 10) * 20	
 			print("Trim Aggiornato !!! " .. string.format("%f %f",tonumber(valore),tonumber(vvv) ) )
@@ -429,6 +465,7 @@ function GotData (udpTable, packet)
 	elseif ("DMZO324" == string.sub( reply, 20,26)) then
 		model = "Mezzo 324 AD"
 		connected = true
+		SyncNow()
 	elseif ("DMZO602_ND" == string.sub( reply, 20,26)) then
 		model = "Mezzo 602 A"
 	elseif ("DMZO602" == string.sub( reply, 20,26)) then
@@ -738,29 +775,59 @@ function SourceAnalogOrDante(OutNumber)
 
 	cmd[1], cmdLen[1] = WriteCmd(0x2210,val, 1, 1, ">I1") -- Write Input Mute if changed
 	cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
-	if (true) then print(string.format("..... Timer Tx: '%s' length %d\r",  DumpPkt(cmd, cmdLen, false))) end
+	if (bPrint) then print(string.format("..... Timer Tx: '%s' length %d\r",  DumpPkt(cmd, cmdLen, false))) end
 	MezzoU:Send(ip, port, cmd)
 
 
 end
 
 
-function SourceAnalogOrDante1(OutNumber)
-
+function SourceAnalogOrDante1(ChNumber)
+	
 	cmd = {}
 	cmdLen = {}
 
 	val = {}
 
-	val[1] = 2
+	Selected = NamedControl.GetValue("DropList_" ..tostring(ChNumber + 1))
+	if(actionStatus.aSourceIn[ChNumber] == Selected) then 	
+		return
+	end
+	print("DropList_" ..tostring(ChNumber +1))
+	--print ( "-----------------------------" ..Selected)
+	if Selected > 3 then 
+		val[1] = (Selected - 4 )* 4	 + 2
+	else
+		val[1] = Selected * 4 
+	
+	end
 
-	cmd[1], cmdLen[1] = WriteCmd(0x2220,val, 1, 1, ">I1") -- Write Input Mute if changed
+	ChNumber = ChNumber 
+	-- la posizione dei source è [3,2,1,4], per questo motivo punto al 0x2202 la terza posizione per il primo source del canale
+	cmd[1], cmdLen[1] = WriteCmd(0x2202 + (ChNumber * 4),val, 1, 1, ">I1") 
 	cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
-	if (true) then print(string.format("..... Timer Tx: '%s' length %d\r",  DumpPkt(cmd, cmdLen, false))) end
+	if (bPrint) then print(string.format("..... Timer Tx: '%s' length %d\r",  DumpPkt(cmd, cmdLen, false))) end
 	MezzoU:Send(ip, port, cmd)
-
+	actionStatus.aSourceIn[ChNumber] = Selected
 
 end
+
+
+function ReadSourceAnalogOrDante1(ChNumber)
+	
+	cmd = {}
+	cmdLen = {}
+
+	val = {}
+
+	-- la posizione dei source è [3,2,1,4], per questo motivo punto al 0x2202 la terza posizione per il primo source del canale
+	cmd[1], cmdLen[1] = ReadCmd(0x2202 + (ChNumber * 4), 1, 1) 
+	cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
+	if (bPrint) then print(string.format("..... Timer Tx: '%s' length %d\r",  DumpPkt(cmd, cmdLen, false))) end
+	MezzoU:Send(ip, port, cmd)
+
+end
+
 
 function Standby ()
 	cmd = {}	
@@ -861,6 +928,20 @@ function ReadOutputGain(OutNumber)
 
 end
 
+function ReadSyncStop(OutNumber)
+	cmd = {}
+	cmdLen = {}
+
+
+	OutName = "F_Output" ..tostring(OutNumber)
+
+	v = tonumber(NamedControl.GetValue(OutName))
+
+	cmd[1], cmdLen[1] = ReadCmd(0x8000, 1, 1) -- Write Input Mute if changed
+	cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
+	MezzoU:Send(ip, port, cmd)
+
+end
 
 
 
@@ -941,6 +1022,17 @@ function ReadOutputMeeter(OutNumber)
 					--	Output Meters
 end
 
+function ReadInputMeeter(OutNumber)
+	cmd = {}
+	cmdLen = {}
+	-- ****************** lettura meeter
+	cmd[1], cmdLen[1] = ReadCmd(0xba40, 4, 4)
+	cmd, cmdLen = BuildMultiPacket(0, cmd, cmdLen)
+	
+	MezzoU:Send(ip, port, cmd)
+
+					--	Output Meters
+end
 
 --******************** Read Model Request Function *****************
 function ReadModel()
@@ -979,6 +1071,7 @@ function AllarmCheck(Channel)
 		--ReadChannelsAllarm()
 		--ReadUnitAllarm()
 		ReadOutputMeeter(Channel)
+		ReadInputMeeter(Channel)
 --	end
 end
 -- ****************** Check and set connection ******************
@@ -1107,6 +1200,7 @@ function TimerClick()
 	CheckSync()
 	-- Automatic Sync every 2 minutes
 	if((Tick %(TickPerSecond * SeconPerMinute * Minutes)) == 0) then
+
 		SyncNow()
 	end
 	
@@ -1115,6 +1209,7 @@ function TimerClick()
 
 		-- Progress message
 		if(Tick % 3 == 0) then
+			
 			NamedControl.SetText("L_Status","Syncing ...")
 		else
 			NamedControl.SetText("L_Status","	")
@@ -1127,6 +1222,12 @@ function TimerClick()
 
 	SetTrimAnalogDante(0x2000)
 	SetTrimAnalogDante(0x2008)
+
+
+	-- **************** Input Sources Managment (Analog 1,2,3,4 Dante 1,2,3,4)
+	for nCh = 0, 3, 1 do
+		SourceAnalogOrDante1(nCh)
+	end
 
 
 	-- **************** Matrix source Gain Managment
@@ -1160,13 +1261,29 @@ function TimerClick()
 	end
 
 
-	
+	-- input signal
+	for i = 1,4,1
+	do
+		iLedSignalName = "L_iSignal".. tostring(i)
+		--print(LedSignalName .. ": " ..tostring(nOutMeter[i]))
+		if nInMeter[i] > -40. and nInMeter[i]  <12.0 then
+			NamedControl.SetValue(iLedSignalName,0.5)
+		elseif nInMeter[i] <= -40. then
+			NamedControl.SetValue(iLedSignalName,0)
+		elseif(nInMeter[i] >=	 12.) then
+			NamedControl.SetValue(iLedSignalName,1)
+		end
+		
+	end
+
+
+	-- output signal	
 	--from-42 to 33	
 	for i = 1,4,1
 	do
 		LedSignalName = "L_Signal".. tostring(i)
 		--print(LedSignalName .. ": " ..tostring(nOutMeter[i]))
-		if nOutMeter[i] <= 28 and nOutMeter[i] > -30 then
+		if nOutMeter[i] <= 28 and nOutMeter[i] > 0. then
 			NamedControl.SetValue(LedSignalName,0.5)
 		elseif nOutMeter[i] <=-30 then
 			NamedControl.SetValue(LedSignalName,0)
@@ -1174,7 +1291,7 @@ function TimerClick()
 			NamedControl.SetValue(LedSignalName,1)
 		end
 	end
-	print("meeter :"..nOutMeter[1])
+--	print("meeter :"..nOutMeter[1])
 	NamedControl.SetValue("Meter_output1", nOutMeter[1])
 	NamedControl.SetValue("Meter_output2", nOutMeter[2])
 	NamedControl.SetValue("Meter_output3", nOutMeter[3])
@@ -1186,6 +1303,7 @@ function TimerClick()
 	if 1 == NamedControl.GetValue("B_M_Preset1") then
 		NamedControl.SetValue("B_M_Preset1", 0)
 		Preset1()
+
 	end
 	if 1 == NamedControl.GetValue("B_M_Preset2") then
 		NamedControl.SetValue("B_M_Preset2", 0)
@@ -1201,9 +1319,15 @@ function TimerClick()
 	end
 
 	FlashUnit()
-	
+	ReadInputMeeter(1)
 end
 
+function ManageSourceRead()
+	ReadSourceAnalogOrDante1(0)	
+	ReadSourceAnalogOrDante1(1)	
+	ReadSourceAnalogOrDante1(2)	
+	ReadSourceAnalogOrDante1(3)	
+end
 
 function CheckSync()
 	
@@ -1214,9 +1338,11 @@ function CheckSync()
 		bAwait = false
 	end
 	]]
+
+
 	if 1 == NamedControl.GetValue("B_Sinc") then
 		bAwait = true
-		
+			ManageSourceRead()
 	--	NamedControl.SetValue("B_Stop", 1)
 		ReadTrimAnalogDante(0x2000)
 		for ch = 1,4,1
@@ -1226,6 +1352,7 @@ function CheckSync()
 		ReadMatrixSourceMute(1)		
 		ReadMatrixSourceGain(1,1)
 		ReadOutputGain(1) -- this has to be the last function ( set bWatit to false)
+		ReadSyncStop(1)
 		NamedControl.SetValue("B_Sinc", 0)
 
 		return true
@@ -1235,7 +1362,7 @@ end
 
 function SyncNow()
 	bAwait = true
-	
+	ManageSourceRead()
 	for ch = 1,4,1
 	do
 		ReadOutputMute(ch)
@@ -1243,6 +1370,8 @@ function SyncNow()
 	ReadMatrixSourceMute(1)		
 	ReadMatrixSourceGain(1,1)
 	ReadOutputGain(1) -- this has to be the last function ( set bWatit to false)
+
+	ReadSyncStop(1)
 	NamedControl.SetValue("B_Sinc", 0)
 end
 
@@ -1273,12 +1402,12 @@ end
 Init()
 
 NamedControl.SetText("Model", model)
+NamedControl.SetText("L_Status", "")
 --NamedControl.SetValue("L_Signal1", 1)
 
 MyTimer = Timer.New()
 MyTimer.EventHandler = TimerClick
 MyTimer:Start(.25)
-
 
 
 
